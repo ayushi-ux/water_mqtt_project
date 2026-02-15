@@ -1,0 +1,907 @@
+{% comment %} <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Water Management Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 40px auto;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 12px 20px;
+            font-size: 15px;
+            cursor: pointer;
+            background: #0d6efd;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .btn-on { background: #198754; }
+        .btn-off { background: #dc3545; }
+        .btn-auto { background: #6c757d; }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 25px;
+        }
+
+        .card {
+            background: #f1f3f5;
+            padding: 20px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .card h3 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #212529;
+        }
+
+        .section-title {
+            margin-top: 35px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #343a40;
+        }
+
+        .motor-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+    <h1>Water Management System</h1>
+
+    <!-- USER INPUT -->
+    <div class="form-group">
+        <input type="number" id="totalHeight" placeholder="Total Height">
+        <input type="number" id="totalVolume" placeholder="Total Volume">
+        <button onclick="sendInput()">Submit</button>
+    </div>
+
+    <!-- STORED INPUT -->
+    <div class="section-title">Stored Input (MQTT State)</div>
+    <div class="cards">
+        <div class="card">
+            <h3>Total Height</h3>
+            <div class="value" id="storedHeight">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Total Volume</h3>
+            <div class="value" id="storedVolume">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Data Source</h3>
+            <div class="value">MQTT</div>
+        </div>
+    </div>
+
+    <!-- CALCULATED OUTPUT -->
+    <div class="section-title">Calculated Output</div>
+    <div class="cards">
+        <div class="card">
+            <h3>Water Percentage</h3>
+            <div class="value" id="percentage">-- %</div>
+        </div>
+
+        <div class="card">
+            <h3>Filled Water Volume</h3>
+            <div class="value" id="filledVolume">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Motor Status</h3>
+            <div class="value" id="motorStatus">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Battery Voltage</h3>
+            <div class="value" id="batteryVoltage">-- V</div>
+        </div>
+    </div>
+
+    <!-- MOTOR MANUAL CONTROL -->
+    <div class="section-title">Motor Control (Manual)</div>
+    <div class="cards">
+        <div class="card">
+            <h3>Manual Control</h3>
+            <div class="motor-buttons">
+                <button class="btn-on" onclick="motorOn()">ON</button>
+                <button class="btn-off" onclick="motorOff()">OFF</button>
+                <button class="btn-auto" onclick="motorAuto()">AUTO</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function sendInput() {
+    fetch("/api/send-input/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            total_height: Number(document.getElementById("totalHeight").value),
+            total_volume: Number(document.getElementById("totalVolume").value)
+        })
+    });
+}
+
+function motorOn() {
+    fetch("/api/motor-control/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: 1 })
+    });
+}
+
+function motorOff() {
+    fetch("/api/motor-control/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: 0 })
+    });
+}
+
+function motorAuto() {
+    fetch("/api/motor-auto/", { method: "POST" });
+}
+
+// Poll backend state every second
+setInterval(async () => {
+    try {
+        // ---------- STORED INPUT ----------
+        const inputRes = await fetch("/api/input/");
+        const inputData = await inputRes.json();
+
+        if (inputData.total_height !== undefined) {
+            document.getElementById("storedHeight").innerText =
+                inputData.total_height;
+            document.getElementById("storedVolume").innerText =
+                inputData.total_volume;
+        }
+
+        // ---------- CALCULATED DATA (AUTO LOGIC) ----------
+        const calcRes = await fetch("/api/calculated/");
+        const calcData = await calcRes.json();
+
+        if (calcData.percentage !== undefined) {
+            document.getElementById("percentage").innerText =
+                calcData.percentage + " %";
+
+            document.getElementById("filledVolume").innerText =
+                calcData.filled_water_in_volume;
+
+            document.getElementById("batteryVoltage").innerText =
+                calcData.battery_voltage + " V";
+        }
+
+        // ---------- MOTOR STATE (MANUAL vs AUTO) ----------
+        const motorRes = await fetch("/api/motor-state/");
+        const motorData = await motorRes.json();
+
+        if (motorData.motor_mode === 1) {
+            // MANUAL MODE
+            document.getElementById("motorStatus").innerText =
+                motorData.motor_manual_status === 1
+                    ? "ON (MANUAL)"
+                    : "OFF (MANUAL)";
+        } else {
+            // AUTO MODE
+            if (calcData.motor_status !== undefined) {
+                document.getElementById("motorStatus").innerText =
+                    calcData.motor_status === 1
+                        ? "ON (AUTO)"
+                        : "OFF (AUTO)";
+            }
+        }
+
+    } catch (err) {
+        console.error("Dashboard update error:", err);
+    }
+}, 1000);
+</script>
+
+</body>
+</html> {% endcomment %}
+
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="{% static 'manifest.json' %}">
+<meta name="theme-color" content="#0284c7">
+<title>Water Management System</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+/* =====================================================
+   THEME VARIABLES
+===================================================== */
+/* =====================================================
+   GLOBAL THEME VARIABLES
+===================================================== */
+:root {
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --border: rgba(0,0,0,0.08);
+    --text: #0f172a;
+    --muted: #64748b;
+
+    --primary: #0284c7;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --auto: #475569;
+
+    --tank-border: #475569;
+}
+
+body.dark {
+    --bg: #020617;
+    --card: #020617;
+    --border: rgba(255,255,255,0.18);
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+
+    --primary: #38bdf8;
+    --tank-border: rgba(255,255,255,0.4);
+}
+
+/* =====================================================
+   RESET
+===================================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: system-ui, Arial, sans-serif;
+    background: radial-gradient(circle at top, #e0f2fe, var(--bg));
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+}
+
+body.dark {
+    background: radial-gradient(circle at top, #020617, #020617);
+}
+
+/* =====================================================
+   CONTAINER
+===================================================== */
+.container {
+    width: 100%;
+    max-width: 980px;
+    padding: 16px;
+}
+
+/* =====================================================
+   HEADER
+===================================================== */
+.header {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 18px;
+    color: var(--primary);
+}
+
+/* =====================================================
+   CARD
+===================================================== */
+.card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    box-shadow: 0 14px 38px rgba(0,0,0,0.12);
+}
+
+body.dark .card {
+    box-shadow: 0 18px 45px rgba(0,0,0,0.85);
+}
+
+/* =====================================================
+   INPUT ROW
+===================================================== */
+.input-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    gap: 12px;
+}
+
+input {
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+}
+
+input::placeholder {
+    color: var(--muted);
+}
+
+/* =====================================================
+   BUTTONS
+===================================================== */
+button {
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: white;
+    transition: all 0.25s ease;
+}
+
+button:hover {
+    transform: translateY(-1px);
+}
+
+button.active {
+    transform: scale(1.05);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #0284c7, #38bdf8);
+}
+
+.btn-on {
+    background: linear-gradient(135deg, #16a34a, #22c55e);
+}
+
+.btn-off {
+    background: linear-gradient(135deg, #dc2626, #ef4444);
+}
+
+.btn-auto {
+    background: linear-gradient(135deg, #475569, #64748b);
+}
+
+.btn-on.active {
+    box-shadow: 0 0 18px rgba(34,197,94,0.9);
+}
+
+.btn-off.active {
+    box-shadow: 0 0 18px rgba(239,68,68,0.9);
+}
+
+.btn-auto.active {
+    box-shadow: 0 0 18px rgba(148,163,184,0.8);
+}
+
+/* =====================================================
+   THEME TOGGLE (SUN / MOON)
+===================================================== */
+.theme-toggle {
+    width: 60px;
+    height: 30px;
+    background: #e5e7eb;
+    border-radius: 50px;
+    position: relative;
+    cursor: pointer;
+    padding: 4px;
+    border: 1px solid var(--border);
+}
+
+body.dark .theme-toggle {
+    background: #334155;
+}
+
+.toggle-ball {
+    width: 24px;
+    height: 24px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    left: 4px;
+    top: 3px;
+    transition: transform 0.3s ease;
+}
+
+body.dark .toggle-ball {
+    transform: translateX(30px);
+}
+
+/* =====================================================
+   DATA BOX
+===================================================== */
+.data-box {
+    background: rgba(0,0,0,0.02);
+    border-radius: 14px;
+    padding: 16px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+body.dark .data-box {
+    background: rgba(255,255,255,0.04);
+}
+
+.data-box span {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.data-box div {
+    font-size: 24px;
+    font-weight: 800;
+}
+
+/* =====================================================
+   WATER SECTION
+===================================================== */
+.water-section {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 24px;
+    align-items: center;
+}
+
+/* =====================================================
+   REAL WATER TANK (TANK SHAPE)
+===================================================== */
+.tank {
+    width: 170px;
+    height: 280px;
+    background: linear-gradient(180deg, #e5e7eb, #cbd5e1);
+    border: 4px solid var(--tank-border);
+    border-radius: 85px 85px 22px 22px;
+    position: relative;
+    overflow: hidden;
+    margin: auto;
+    box-shadow:
+        inset 0 10px 22px rgba(0,0,0,0.25),
+        0 0 28px rgba(2,132,199,0.4);
+}
+
+body.dark .tank {
+    background: #020617;
+    box-shadow:
+        inset 0 12px 28px rgba(255,255,255,0.12),
+        0 0 32px rgba(56,189,248,0.6);
+}
+
+/* Tank stand */
+.tank::after {
+    content: "";
+    position: absolute;
+    bottom: -10px;
+    left: 30%;
+    width: 40%;
+    height: 10px;
+    background: var(--tank-border);
+    border-radius: 0 0 8px 8px;
+}
+
+/* =====================================================
+   WATER
+===================================================== */
+.water {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 0%;
+    background: linear-gradient(180deg, #7dd3fc, #0284c7);
+    transition: height 1s ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Water text */
+.water-text {
+    color: white;
+    font-size: 22px;
+    font-weight: 900;
+    text-shadow: 0 3px 8px rgba(0,0,0,0.6);
+    z-index: 4;
+}
+
+/* Wave animation */
+.wave {
+    position: absolute;
+    top: -20px;
+    left: -50%;
+    width: 200%;
+    height: 40px;
+    background: rgba(255,255,255,0.35);
+    border-radius: 50%;
+    animation: waveMove 3s linear infinite;
+}
+
+@keyframes waveMove {
+    from { transform: translateX(0); }
+    to { transform: translateX(50%); }
+}
+
+/* =====================================================
+   INFO GRID
+===================================================== */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+/* =====================================================
+   MOTOR STATUS
+===================================================== */
+.motor-status {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 12px;
+}
+
+.motor-on { color: var(--success); }
+.motor-off { color: var(--danger); }
+.motor-auto { color: var(--auto); }
+
+.motor-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+/* =====================================================
+   ALERT
+===================================================== */
+.alert {
+    padding: 14px;
+    border-radius: 14px;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 16px;
+    animation: pulse 1.5s infinite;
+}
+
+.alert.low {
+    background: rgba(220,38,38,0.15);
+    color: #f55151;
+    border: 1px solid rgba(220,38,38,0.6);
+}
+
+.alert.full {
+    background: rgba(22,163,74,0.15);
+    color: #bbf7d0;
+    border: 1px solid rgba(22,163,74,0.6);
+}
+
+.alert.hidden {
+    display: none;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+    100% { transform: scale(1); }
+}
+
+/* =====================================================
+   RESPONSIVE
+===================================================== */
+@media (max-width: 760px) {
+    .water-section {
+        grid-template-columns: 1fr;
+    }
+
+    .input-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="header">Water Management System</div>
+
+<!-- INPUT -->
+<div class="card">
+    <div class="input-row">
+        <input id="totalHeight" type="number" placeholder="Total Height">
+        <input id="totalVolume" type="number" placeholder="Total Volume">
+        <button class="btn-primary" onclick="sendInput()">Submit</button>
+
+        <div class="theme-toggle" onclick="toggleDark()">
+            <span>☀️</span>
+            <span>🌙</span>
+            <div class="toggle-ball"></div>
+        </div>
+    </div>
+</div>
+
+<!-- STORED INPUT -->
+<div class="card">
+    <div class="info-grid">
+        <div class="data-box"><span>Total Height</span><div id="storedHeight">--</div></div>
+        <div class="data-box"><span>Total Volume</span><div id="storedVolume">--</div></div>
+    </div>
+</div>
+
+
+<div id="alertBox" class="alert hidden">
+    <span id="alertText"></span>
+</div>
+
+<!-- WATER + DATA -->
+<div class="card">
+    <div class="water-section">
+
+        <div class="tank">
+            <div id="waterFill" class="water">
+                <div id="waterText" class="water-text">--%</div>
+                <div class="wave"></div>
+            </div>
+        </div>
+
+        <div class="info-grid">
+            <div class="data-box"><span>Water %</span><div id="percentage">--</div></div>
+            <div class="data-box"><span>Filled Volume</span><div id="filledVolume">--</div></div>
+            <div class="data-box"><span>Battery (V)</span><div id="batteryVoltage">--</div></div>
+            <div class="data-box"><span>Data Source</span><div>MQTT</div></div>
+        </div>
+
+    </div>
+</div>
+
+<!-- MOTOR -->
+<div class="card">
+    <div id="motorStatus" class="motor-status">--</div>
+    <div class="motor-buttons">
+        <button id="btnOn" class="btn-on" onclick="motorOn()">ON</button>
+        <button id="btnOff" class="btn-off" onclick="motorOff()">OFF</button>
+        <button id="btnAuto" class="btn-auto" onclick="motorAuto()">AUTO</button>
+    </div>
+</div>
+
+</div>
+
+<script>
+    let autoMotorTriggered = false;   // low water ON trigger
+    let autoMotorOffTriggered = false; // full tank OFF trigger
+    let lowWaterBeeped = false;
+    let fullWaterBeeped = false;
+
+
+function toggleDark(){
+    document.body.classList.toggle("dark");
+    localStorage.setItem("dark", document.body.classList.contains("dark"));
+}
+if(localStorage.getItem("dark")==="true") document.body.classList.add("dark");
+
+function sendInput(){
+    fetch("/api/send-input/",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            total_height:+totalHeight.value,
+            total_volume:+totalVolume.value
+        })
+    });
+}
+
+function motorOn(){ fetch("/api/motor-control/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:1})}); }
+function motorOff(){ fetch("/api/motor-control/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:0})}); }
+function motorAuto(){ fetch("/api/motor-auto/",{method:"POST"}); }
+
+setInterval(async () => {
+
+    /* ---------- INPUT ---------- */
+    const input = await (await fetch("/api/input/")).json();
+    if (input.total_height) {
+        storedHeight.innerText = input.total_height;
+        storedVolume.innerText = input.total_volume;
+    }
+
+    /* ---------- CALCULATED ---------- */
+    const calc = await (await fetch("/api/calculated/")).json();
+
+    if (calc.percentage !== undefined) {
+        const pct = Number(calc.percentage);
+
+        percentage.innerText = pct + " %";
+        filledVolume.innerText = calc.filled_water_in_volume;
+        batteryVoltage.innerText = calc.battery_voltage + " V";
+
+        waterFill.style.height = pct + "%";
+        waterText.innerText = pct + "%";
+
+        /* ---------- ALERT + BUZZER ---------- */
+        if (pct <= 10) {
+            alertBox.className = "alert low";
+            alertText.innerText = "⚠ LOW WATER LEVEL (" + pct + "%)";
+
+            if (!lowWaterBeeped) {
+                buzzerLow.play().catch(()=>{});
+                lowWaterBeeped = true;
+                fullWaterBeeped = false;
+            }
+        }
+        else if (pct >= 95) {
+            alertBox.className = "alert full";
+            alertText.innerText = "✅ TANK FULL (" + pct + "%)";
+
+            buzzerLow.pause();
+            buzzerLow.currentTime = 0;
+
+            if (!fullWaterBeeped) {
+                buzzerFull.play().catch(()=>{});
+                fullWaterBeeped = true;
+                lowWaterBeeped = false;
+            }
+        }
+        else {
+            alertBox.className = "alert hidden";
+            buzzerLow.pause();
+            buzzerLow.currentTime = 0;
+            lowWaterBeeped = false;
+            fullWaterBeeped = false;
+        }
+    }
+
+    /* ---------- MOTOR STATE ---------- */
+    const motor = await (await fetch("/api/motor-state/")).json();
+
+    btnOn.classList.remove("active");
+    btnOff.classList.remove("active");
+    btnAuto.classList.remove("active");
+
+    /* =================================================
+       AUTO MOTOR ON (≤10%)
+    ================================================= */
+    if (
+        motor.motor_mode === 0 &&              // AUTO MODE
+        calc.percentage !== undefined &&
+        calc.percentage <= 10 &&
+        autoMotorTriggered === false
+    ) {
+        console.log("⚡ AUTO MOTOR ON (Low water)");
+
+        fetch("/api/motor-control/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: 1 })
+        });
+
+        autoMotorTriggered = true;
+        autoMotorOffTriggered = false;
+    }
+
+    /* Reset ON trigger when level recovers */
+    if (calc.percentage > 15) {
+        autoMotorTriggered = false;
+    }
+
+    /* =================================================
+       AUTO MOTOR OFF (≥95%)
+    ================================================= */
+    if (
+        motor.motor_mode === 0 &&              // AUTO MODE
+        calc.percentage !== undefined &&
+        calc.percentage >= 95 &&
+        autoMotorOffTriggered === false
+    ) {
+        console.log("⛔ AUTO MOTOR OFF (Tank full)");
+
+        fetch("/api/motor-control/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: 0 })
+        });
+
+        autoMotorOffTriggered = true;
+        autoMotorTriggered = false;
+    }
+
+    /* Reset OFF trigger when level drops */
+    if (calc.percentage < 90) {
+        autoMotorOffTriggered = false;
+    }
+
+    /* ---------- MOTOR UI ---------- */
+    if (motor.motor_mode === 1) {
+        // MANUAL MODE
+        if (motor.motor_manual_status) {
+            motorStatus.innerText = "ON (MANUAL)";
+            motorStatus.className = "motor-status motor-on";
+            btnOn.classList.add("active");
+        } else {
+            motorStatus.innerText = "OFF (MANUAL)";
+            motorStatus.className = "motor-status motor-off";
+            btnOff.classList.add("active");
+        }
+    } else {
+        // AUTO MODE
+        motorStatus.innerText = calc.motor_status ? "ON (AUTO)" : "OFF (AUTO)";
+        motorStatus.className = "motor-status motor-auto";
+        btnAuto.classList.add("active");
+    }
+
+}, 1000);
+
+
+
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("{% static 'sw.js' %}")
+            .then(() => console.log("Service Worker Registered"))
+            .catch(err => console.error("SW Error", err));
+    });
+}
+
+</script>
+
+
+<audio id="buzzerLow" loop>
+    <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" type="audio/ogg">
+</audio>
+
+<audio id="buzzerFull">
+    <source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" type="audio/ogg">
+</audio>
+
+
+</body>
+</html>
